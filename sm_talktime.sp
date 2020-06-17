@@ -115,7 +115,7 @@ public void OnClientPostAdminCheck(int client)
 
 void ClientCheck(int client)
 {
-	char szSteamId[64];
+	char szSteamId[18];
 	char szQuery[256];
 	
 	GetClientAuthId(client, AuthId_SteamID64, szSteamId, sizeof(szSteamId));
@@ -137,13 +137,16 @@ public void SQL_ClientCheck(Database hDatabase, DBResultSet hResults, const char
 	}
 	
 	char szQuery[256];
-	char szSteamId[64];
+	char szSteamId[18];
 	char szName[MAX_NAME_LENGTH];
 	char szDbName[MAX_NAME_LENGTH];
 	
 	pack.Reset();
 	pack.ReadString(szSteamId, sizeof(szSteamId));
 	int client = GetClientOfUserId(pack.ReadCell());
+	
+	delete pack;
+	
 	GetClientName(client, szName, sizeof(szName));
 	
 	if(hResults.RowCount != 0)
@@ -180,7 +183,7 @@ public void OnClientDisconnect(int client)
 
 void SendValues(int client)
 {
-	char szSteamId[64];
+	char szSteamId[18];
 	char szQuery[256];
 	char szName[MAX_NAME_LENGTH];
 

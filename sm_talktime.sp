@@ -1,20 +1,28 @@
 #pragma semicolon 1
 #pragma newdecls required
 
-#define PLUGIN_VERSION "1.1"
+#define PLUGIN_VERSION "1.3"
 
 #include <sourcemod>
 #include <sdktools>
 #include <cstrike>
 #include <voiceannounce_ex>
 
+#define MAX_TALKERS 64
+
 Database g_hDatabase;
 
 ConVar g_Debug;
 ConVar g_OnlyAdmins;
 ConVar g_Warmup;
+ConVar g_TopList;
 ConVar g_DbConfig;
 
+int g_iTalkerId;
+
+char g_szTopTalker[MAX_TALKERS][MAX_NAME_LENGTH];
+
+float g_fTopTalker[MAX_TALKERS];
 float g_fSpeaking[MAXPLAYERS + 1];
 
 enum struct g_eTalkTime
@@ -45,9 +53,11 @@ public void OnPluginStart()
 	g_Debug = CreateConVar("sm_talktime_debug", "0", "Show debug messages in client console?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	g_OnlyAdmins = CreateConVar("sm_talktime_onlyadmins", "0", "Only admins can see stats of others?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	g_Warmup = CreateConVar("sm_talktime_warmup", "1", "Enable logging while warmup is active?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-	g_DbConfig = CreateConVar("sm_talktime_database", "talktime", "Which database (from databases.cfg) should be used?", FCVAR_PROTECTED);
-	
+	g_TopList = CreateConVar("sm_talktime_toplistsize", "30", "How many people will fit into toplist menu?", FCVAR_NOTIFY, true, 1.0, true, 64.0);
+	g_DbConfig = CreateConVar("sm_talktime_database", "default", "Which database (from databases.cfg) should be used?", FCVAR_PROTECTED);
+
 	RegConsoleCmd("sm_talktime", Command_TalkTime, "Show information in menu");
+	RegConsoleCmd("sm_toptalkers", Command_TopTalkers, "Show list of players that spoke the most");
 	
 	HookEvent("player_death", Event_Cut, EventHookMode_Pre);
 	HookEvent("player_spawn", Event_Cut, EventHookMode_Pre);
@@ -68,7 +78,7 @@ public void OnPluginEnd()
 public void OnConfigsExecuted()
 {
 	char db[32];
-	GetConVarString(g_DbConfig, db, sizeof(db));
+	g_DbConfig.GetString(db, sizeof(db));
 	if(!SQL_CheckConfig(db))
 	{
 		SetFailState("Database '%s' not found in databases.cfg", db);
@@ -101,6 +111,8 @@ public void SQL_Connection(Database hDatabase, const char[] szError, int iData)
 		}
 	}
 	
+	g_hDatabase.Query(SQL_CheckTopTalkers, "SELECT `name`, `total` FROM `sm_talktime` WHERE `total`>=1 ORDER BY `total` DESC");
+	
 	if(g_Debug.BoolValue)
 	{
 		PrintToServer("[TalkTime debug] SQL Connected.");
@@ -117,7 +129,10 @@ public void SQL_Error(Database hDatabase, DBResultSet hResults, const char[] szE
 
 public void OnClientPostAdminCheck(int client)
 {
-	ClientCheck(client);
+	if(IsValidClient(client))
+	{
+		ClientCheck(client);
+	}
 }
 
 void ClientCheck(int client)
@@ -180,6 +195,21 @@ public void SQL_ClientCheck(Database hDatabase, DBResultSet hResults, const char
 
 		g_hDatabase.Format(szQuery, sizeof(szQuery), "INSERT INTO `sm_talktime` (name, steamid) VALUES ('%s', '%s')", szName, szSteamId);
 		g_hDatabase.Query(SQL_Error, szQuery);
+	}
+}
+
+public void SQL_CheckTopTalkers(Database hDatabase, DBResultSet hResults, const char[] szError, any iData)
+{
+	if(hResults == null)
+	{
+		ThrowError(szError);
+	}
+	
+	while(hResults.FetchRow() && g_iTalkerId <= g_TopList.IntValue)
+	{
+		hResults.FetchString(0, g_szTopTalker[g_iTalkerId], sizeof(g_szTopTalker));
+		g_fTopTalker[g_iTalkerId] = hResults.FetchFloat(1);
+		g_iTalkerId++;
 	}
 }
 
@@ -323,6 +353,33 @@ public int hTalkTimeMenu(Menu menu, MenuAction action, int client, int index)
 	delete menu;
 }
 
+public Action Command_TopTalkers(int client, int args)
+{
+	Menu menu = new Menu(hTopListMenu, MENU_ACTIONS_ALL);
+	menu.SetTitle("%t", "Top Talkers");
+	
+	for (int i; i < g_iTalkerId; i++)
+	{
+		char timer[128], buffer[128], info[3];
+		ShowTimer(g_fTopTalker[i], "", timer, sizeof(timer));
+		Format(buffer, sizeof(buffer), "%s (%s)", g_szTopTalker[i], timer);
+		IntToString(i, info, sizeof(info));
+		menu.AddItem(info, buffer, ITEMDRAW_DISABLED);
+	}
+	menu.Display(client, MENU_TIME_FOREVER);
+	return Plugin_Handled;
+}
+
+public int hTopListMenu(Menu menu, MenuAction action, int client, int index)
+{
+	switch(action)
+	{
+		case MenuAction_End: delete menu;
+		case MenuAction_DrawItem: return ITEMDRAW_DISABLED;
+	}
+	return 0;
+}
+
 public void OnClientSpeakingEx(int client)
 {
 	if(g_fSpeaking[client] <= 0.0)
@@ -343,10 +400,12 @@ public void OnClientSpeakingEnd(int client)
 public Action Event_Cut(Handle event, char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(GetEventInt(event, "userid"));
-	
-	if(IsClientSpeaking(client))
+	if(IsValidClient(client))
 	{
-		WriteValues(client, false);
+		if(IsClientSpeaking(client))
+		{
+			WriteValues(client, false);
+		}
 	}
 }
 
@@ -405,7 +464,7 @@ int ShowTimer(float Time, char[] add, char[] buffer, int sizef)
 	Format(hours, sizeof(hours), "%t", "Hours");
 	Format(minutes, sizeof(minutes), "%t", "Minutes");
 	Format(seconds, sizeof(seconds), "%t", "Seconds");
-	
+
 	while(g_fSeconds > 3600.0)
 	{
 		g_iHours++;
@@ -428,12 +487,12 @@ int ShowTimer(float Time, char[] add, char[] buffer, int sizef)
 	{
 		Format(buffer, sizef, "%.0f %s", g_fSeconds, seconds);
 	}
-	Format(buffer, sizef, "%s %s", add, buffer);
+	Format(buffer, sizef, "%s%s", add, buffer);
 }
 
 stock bool IsValidClient(int client)
 {
-	if(client >= 1 && client <= MaxClients && IsClientConnected(client) && IsClientInGame(client) && !IsClientSourceTV(client))
+	if(client >= 1 && client <= MaxClients && IsClientConnected(client) && IsClientInGame(client) && !IsClientSourceTV(client) && !IsFakeClient(client))
 	{
 		return true;
 	}

@@ -16,11 +16,16 @@
 		"en"			"Your talk time:"
 	}
 
+	"Top Talkers"
+	{
+		"en"			"Top talkers:"
+	}
+	
 	"Total Talk Time"
 	{
 		"en"			"Total: "
 	}
-
+	
 	"Alive"
 	{
 		"en"			"While alive: "

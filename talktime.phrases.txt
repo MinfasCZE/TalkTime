@@ -1,0 +1,68 @@
+"Phrases"
+{
+	"Found multiple clients"
+	{
+		"en"			"What player did you mean?"
+	}
+	
+	"Talk time"
+	{
+		"#format"	"{1:N}"
+		"en"			"Information about '{1}':"
+	}
+
+	"My talk time"
+	{
+		"en"			"Your talk time:"
+	}
+
+	"Total Talk Time"
+	{
+		"en"			"Total: "
+	}
+
+	"Alive"
+	{
+		"en"			"While alive: "
+	}
+
+	"Dead"
+	{
+		"en"			"While dead: "
+	}
+
+	"Ct"
+	{
+		"en"			"As Counter-Terrorist: "
+	}
+
+	"T"
+	{
+		"en"			"As Terrorist: "
+	}
+
+	"Spec"
+	{
+		"en"			"As Spectator: "
+	}
+
+	"Close menu"
+	{
+		"en"			"Exit"
+	}
+
+	"Hours"
+	{
+		"en"			"hours"
+	}
+
+	"Minutes"
+	{
+		"en"			"minutes"
+	}
+
+	"Seconds"
+	{
+		"en"			"seconds"
+	}
+}

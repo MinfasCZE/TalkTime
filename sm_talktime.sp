@@ -4,18 +4,16 @@
 #define PLUGIN_VERSION "1.1"
 
 #include <sourcemod>
+#include <sdktools>
 #include <cstrike>
 #include <voiceannounce_ex>
 
 Database g_hDatabase;
 
-Handle g_cDebug;
-Handle g_cOnlyAdmins;
-Handle g_cDatabase;
-
-int g_iMinutes;
-int g_iHours;
-float g_fSeconds;
+ConVar g_Debug;
+ConVar g_OnlyAdmins;
+ConVar g_Warmup;
+ConVar g_DbConfig;
 
 float g_fSpeaking[MAXPLAYERS + 1];
 
@@ -44,9 +42,10 @@ public void OnPluginStart()
 {
 	LoadTranslations("common.phrases");
 	LoadTranslations("talktime.phrases");
-	g_cDebug = CreateConVar("sm_talktime_debug", "0", "Show debug messages in client console?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-	g_cOnlyAdmins = CreateConVar("sm_talktime_onlyadmins", "0", "Only admins can see stats of others?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
-	g_cDatabase = CreateConVar("sm_talktime_database", "talktime", "Which database (from databases.cfg) should be used?", FCVAR_PROTECTED);
+	g_Debug = CreateConVar("sm_talktime_debug", "0", "Show debug messages in client console?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	g_OnlyAdmins = CreateConVar("sm_talktime_onlyadmins", "0", "Only admins can see stats of others?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	g_Warmup = CreateConVar("sm_talktime_warmup", "1", "Enable logging while warmup is active?", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	g_DbConfig = CreateConVar("sm_talktime_database", "talktime", "Which database (from databases.cfg) should be used?", FCVAR_PROTECTED);
 	
 	RegConsoleCmd("sm_talktime", Command_TalkTime, "Show information in menu");
 	
@@ -69,8 +68,16 @@ public void OnPluginEnd()
 public void OnConfigsExecuted()
 {
 	char db[32];
-	GetConVarString(g_cDatabase, db, sizeof(db));
-	Database.Connect(SQL_Connection, db);
+	GetConVarString(g_DbConfig, db, sizeof(db));
+	if(!SQL_CheckConfig(db))
+	{
+		SetFailState("Database '%s' not found in databases.cfg", db);
+		return;
+	}
+	else
+	{
+		Database.Connect(SQL_Connection, db);
+	}
 }
 
 public void SQL_Connection(Database hDatabase, const char[] szError, int iData)
@@ -94,7 +101,7 @@ public void SQL_Connection(Database hDatabase, const char[] szError, int iData)
 		}
 	}
 	
-	if(GetConVarBool(g_cDebug) == true)
+	if(g_Debug.BoolValue)
 	{
 		PrintToServer("[TalkTime debug] SQL Connected.");
 	}
@@ -185,12 +192,10 @@ void SendValues(int client)
 {
 	char szSteamId[18];
 	char szQuery[256];
-	char szName[MAX_NAME_LENGTH];
 
 	GetClientAuthId(client, AuthId_SteamID64, szSteamId, sizeof(szSteamId));
-	GetClientName(client, szName, sizeof(szName));
 
-	g_hDatabase.Format(szQuery, sizeof(szQuery), "UPDATE `sm_talktime` SET `name`='%s', `total`='%f', `alive`='%f', `dead`='%f', `t`='%f', `ct`='%f', `spec`='%f' WHERE `steamid`='%s'", szName, g_fTalkTime[client].Total, g_fTalkTime[client].Alive, g_fTalkTime[client].Dead, g_fTalkTime[client].T, g_fTalkTime[client].Ct, g_fTalkTime[client].Spec, szSteamId);
+	g_hDatabase.Format(szQuery, sizeof(szQuery), "UPDATE `sm_talktime` SET `name`='%N', `total`='%f', `alive`='%f', `dead`='%f', `t`='%f', `ct`='%f', `spec`='%f' WHERE `steamid`='%s'", client, g_fTalkTime[client].Total, g_fTalkTime[client].Alive, g_fTalkTime[client].Dead, g_fTalkTime[client].T, g_fTalkTime[client].Ct, g_fTalkTime[client].Spec, szSteamId);
 	g_hDatabase.Query(SQL_Error, szQuery);
 
 	// probably not necessary but make sure everything is cleared.
@@ -210,12 +215,12 @@ void ClearValues(int client)
 
 public Action Command_TalkTime(int client, int args)
 {
-	if (args < 1 || (GetConVarBool(g_cOnlyAdmins) == true && !CheckCommandAccess(client, "", ADMFLAG_GENERIC, true)))
+	if (args < 1 || (g_OnlyAdmins.BoolValue && !CheckCommandAccess(client, "", ADMFLAG_GENERIC, true)))
 	{
 		TalkTimeMenu(client, client);
 		return Plugin_Handled;
 	}
-	else if((GetConVarBool(g_cOnlyAdmins) == true && CheckCommandAccess(client, "", ADMFLAG_GENERIC, true)) || GetConVarBool(g_cOnlyAdmins) == false)
+	else if((g_OnlyAdmins.BoolValue && CheckCommandAccess(client, "", ADMFLAG_GENERIC, true)) || !g_OnlyAdmins.BoolValue)
 	{
 		char arg1[32];
 		GetCmdArg(1, arg1, 32);
@@ -272,6 +277,7 @@ public int hListMenu(Menu menu, MenuAction action, int client, int index)
 				TalkTimeMenu(client, StringToInt(szItem));
 			}
 		}
+		case MenuAction_End: delete menu;
 	}
 }
 
@@ -314,7 +320,7 @@ void TalkTimeMenu(int client, int talker)
 
 public int hTalkTimeMenu(Menu menu, MenuAction action, int client, int index)
 {
-	/*nothing*/
+	delete menu;
 }
 
 public void OnClientSpeakingEx(int client)
@@ -322,7 +328,7 @@ public void OnClientSpeakingEx(int client)
 	if(g_fSpeaking[client] <= 0.0)
 	{
 		g_fSpeaking[client] = GetGameTime();
-		if(GetConVarBool(g_cDebug) == true)
+		if(g_Debug.BoolValue)
 		{
 			PrintToConsole(client, "[TalkTime debug] You started speaking.");
 		}
@@ -350,31 +356,34 @@ void WriteValues(int client, bool alive)
 	{
 		g_fSpeaking[client] = GetGameTime() - g_fSpeaking[client];
 		
-		if(GetConVarBool(g_cDebug) == true)
+		if(g_Debug.BoolValue)
 		{
 			PrintToConsole(client, "[TalkTime debug] You spoke %.2f seconds. (Total: %.2f)", g_fSpeaking[client], g_fTalkTime[client].Total);
 		}
 		
-		if(alive == true)
+		if(g_Warmup.BoolValue || (!g_Warmup.BoolValue && GameRules_GetProp("m_bWarmupPeriod") == 0))
 		{
-			g_fTalkTime[client].Alive += g_fSpeaking[client];
-		}
-		else
-		{
-			g_fTalkTime[client].Dead += g_fSpeaking[client];
-		}
-		
-		if(GetClientTeam(client) == CS_TEAM_T)
-		{
-			g_fTalkTime[client].T += g_fSpeaking[client];
-		}
-		else if(GetClientTeam(client) == CS_TEAM_CT)
-		{
-			g_fTalkTime[client].Ct += g_fSpeaking[client];
-		}
-		else if(GetClientTeam(client) == CS_TEAM_SPECTATOR)
-		{
-			g_fTalkTime[client].Spec += g_fSpeaking[client];
+			if(alive == true)
+			{
+				g_fTalkTime[client].Alive += g_fSpeaking[client];
+			}
+			else
+			{
+				g_fTalkTime[client].Dead += g_fSpeaking[client];
+			}
+			
+			if(GetClientTeam(client) == CS_TEAM_T)
+			{
+				g_fTalkTime[client].T += g_fSpeaking[client];
+			}
+			else if(GetClientTeam(client) == CS_TEAM_CT)
+			{
+				g_fTalkTime[client].Ct += g_fSpeaking[client];
+			}
+			else if(GetClientTeam(client) == CS_TEAM_SPECTATOR)
+			{
+				g_fTalkTime[client].Spec += g_fSpeaking[client];
+			}
 		}
 		
 		g_fTalkTime[client].Total += g_fSpeaking[client];
@@ -385,9 +394,9 @@ void WriteValues(int client, bool alive)
 
 int ShowTimer(float Time, char[] add, char[] buffer, int sizef)
 {
-	g_iHours = 0;
-	g_iMinutes = 0;
-	g_fSeconds = Time;
+	int g_iMinutes = 0;
+	int g_iHours = 0;
+	float g_fSeconds = Time;
 	
 	char hours[16];
 	char minutes[16];
